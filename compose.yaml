@@ -1,0 +1,106 @@
+name: classement
+
+x-app-env: &app-env
+  APP_ENV: prod
+  APP_DEBUG: '0'
+  APP_SECRET: ${APP_SECRET:?Set APP_SECRET in .env}
+  DATABASE_URL: 'mysql://classement:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:3306/classement?serverVersion=mariadb-10.11.0&charset=utf8mb4'
+  APP_PREFERENCES_ENCRYPTION_KEY: ${PREFERENCES_KEY:?Set PREFERENCES_KEY in .env}
+  APP_CLIENT_ALLOW_DOMAINS: ${PUBLIC_HOST:-localhost:8080}
+  APP_CLIENT_URL_USER_LOGIN: '${PUBLIC_URL:-http://localhost:8080}/user/login'
+  APP_CLIENT_URL_USER_VALIDATE: '${PUBLIC_URL:-http://localhost:8080}/user/validate/:token'
+  APP_CLIENT_URL_PASSWORD_LOST: '${PUBLIC_URL:-http://localhost:8080}/user/password-lost/:token'
+  APP_CLIENT_URL_OAUTH_CONNECT: '${PUBLIC_URL:-http://localhost:8080}/user/connect/:service/:token'
+  APP_CLIENT_URL_SITEMAP: '${PUBLIC_URL:-http://localhost:8080}/'
+  CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN:-^$}
+  SYMFONY_TRUSTED_PROXIES: ${SYMFONY_TRUSTED_PROXIES:-}
+  APACHE_TRUSTED_PROXY_CIDR: ${APACHE_TRUSTED_PROXY_CIDR:-127.0.0.1/32}
+  SYMFONY_TRUSTED_HEADERS: ${SYMFONY_TRUSTED_HEADERS:-x-forwarded-for,x-forwarded-proto,x-forwarded-port}
+  MAILER_DSN: ${MAILER_DSN:-smtp://mailpit:1025}
+  APP_CONTACT_EMAIL: ${APP_CONTACT_EMAIL:-admin@example.test}
+  APP_CONTACT_OBJECT: "${APP_CONTACT_OBJECT:-Classement: Contact message}"
+  TMDB_API_KEY: ${TMDB_API_KEY:-}
+  OAUTH_DISCORD_CLIENT_ID: ${OAUTH_DISCORD_CLIENT_ID:-}
+  OAUTH_DISCORD_CLIENT_SECRET: ${OAUTH_DISCORD_CLIENT_SECRET:-}
+  OAUTH_FACEBOOK_ID: ${OAUTH_FACEBOOK_ID:-}
+  OAUTH_FACEBOOK_SECRET: ${OAUTH_FACEBOOK_SECRET:-}
+  OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
+  OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
+
+services:
+  web:
+    image: classement-web:local
+    pull_policy: never
+    build:
+      context: .
+      args:
+        CLIENT_REPO: ${CLIENT_REPO:-https://github.com/Zefling/classement-client.git}
+        CLIENT_REF: ${CLIENT_REF:-master}
+        SERVER_REPO: ${SERVER_REPO:-https://github.com/Zefling/classement-server.git}
+        SERVER_REF: ${SERVER_REF:-main}
+        UPSTREAM_REFRESH: ${UPSTREAM_REFRESH:-initial}
+    restart: unless-stopped
+    ports:
+      - '${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+    environment: *app-env
+    volumes:
+      - images:/var/www/classement/public/images
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1/api/test | grep -q ''"status":"OK"''']
+      interval: 30s
+      timeout: 10s
+      retries: 4
+      start_period: 60s
+
+  # Init job; no shell/entrypoint script. A nonzero exit prevents web startup.
+  migrate:
+    image: classement-web:local
+    pull_policy: never
+    restart: 'no'
+    user: '33:33'
+    entrypoint: ['php', 'bin/console']
+    command: ['doctrine:migrations:migrate', '--no-interaction', '--allow-no-migration']
+    environment: *app-env
+    volumes:
+      - images:/var/www/classement/public/images
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: classement
+      MARIADB_USER: classement
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  mailpit:
+    image: axllent/mailpit:v1.31
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${MAIL_UI_PORT:-8025}:8025'
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mailpit_data:/data
+
+volumes:
+  # These names preserve the previous compose project's persistent data.
+  database:
+  images:
+  mailpit_data:

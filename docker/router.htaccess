@@ -1,0 +1,13 @@
+DirectoryIndex index.html index.php
+Options -MultiViews
+RewriteEngine On
+
+# Symfony backend routes. Keep these ahead of the Angular SPA fallback.
+RewriteRule ^(api(/|$)|connect(/|$)|images(/|$)|sitemap\.xml$) index.php [END,QSA]
+
+# Existing static files (Angular JS/CSS/assets, icons, robots.txt) are served directly.
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [END]
+
+# Angular HTML5 routing; /user/login etc. return the SPA, not Symfony.
+RewriteRule ^ index.html [END]
