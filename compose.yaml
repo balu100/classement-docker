@@ -71,6 +71,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      init-uploads:
+        condition: service_completed_successfully
+
+  # Set upload volume ownership before migrations and Apache start.
+  # Uses coreutils directly; no custom scripts or changes to upstream PHP.
+  init-uploads:
+    image: classement-web:local
+    pull_policy: never
+    restart: 'no'
+    user: '0:0'
+    entrypoint: ['chown']
+    command: ['33:33', '/var/www/classement/public/images']
+    volumes:
+      - images:/var/www/classement/public/images
 
   db:
     image: mariadb:10.11
@@ -100,7 +114,7 @@ services:
       - mailpit_data:/data
 
 volumes:
-  # These names preserve the previous compose project's persistent data.
+  # Named volumes retain database, uploads and local mail between deployments.
   database:
   images:
   mailpit_data:
