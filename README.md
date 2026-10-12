@@ -17,6 +17,7 @@ The Docker build changes only the Angular production API base path to `/` so tha
 | --- | --- |
 | `web` | Apache, PHP 8.4, Symfony API, and compiled Angular frontend |
 | `migrate` | One-shot Doctrine database migrations, using the same application image |
+| `init-uploads` | One-shot ownership initialization for the persistent uploads volume |
 | `db` | MariaDB 10.11, with persistent storage |
 | `mailpit` | Local SMTP inbox for sign-up and password-reset emails |
 
@@ -83,10 +84,11 @@ Expected service states:
 
 - `db`: healthy
 - `mailpit`: healthy
+- `init-uploads`: **Exited (0)** (normal: fixes ownership of the image volume)
 - `migrate`: **Exited (0)** (normal for this one-shot job)
 - `web`: running, then healthy
 
-The `web` and `migrate` services share the locally built `classement-web:local` image. The first startup builds it locally rather than pulling it from a registry.
+The `web`, `migrate`, and `init-uploads` services share the locally built `classement-web:local` image. The first startup builds it locally rather than pulling it from a registry.
 
 ### 3. Open the application
 
@@ -191,7 +193,19 @@ Check Doctrine migration status:
 docker compose exec -T web php bin/console doctrine:migrations:status --no-interaction
 ```
 
-The expected migration status is **no pending migrations**. The `migrate` service must finish successfully before `web` starts. The `/api/test` healthcheck verifies basic application availability; it does not replace functional tests for sign-up, login, uploads, or third-party integrations.
+The expected migration status is **no pending migrations**. The `init-uploads` service gives the runtime user permission to create directories in the persistent image volume before `migrate` and `web` start. The `migrate` service must finish successfully before `web` starts. The `/api/test` healthcheck verifies basic application availability; it does not replace functional tests for sign-up, login, uploads, or third-party integrations.
+
+If creating a tier list with uploaded images fails with `Unable to create .../public/images/~tmp/`, verify permissions **as the Apache user**, not root:
+
+```bash
+docker compose exec --user 33:33 web sh -c 'test -w /var/www/classement/public/images && echo writable'
+```
+
+The `init-uploads` one-shot service automatically fixes ownership of the volume root on startup; it runs `chown` directly and does not need a shell script. To repair older uploads that have incorrect file or subdirectory ownership, adjust them once, after making a backup:
+
+```bash
+docker compose run --rm --no-deps --user 0:0 --entrypoint chown web -R 33:33 /var/www/classement/public/images
+```
 
 To check uploads, create a tier list with a locally uploaded image, then inspect the image's URL and response type. A saved local image should return the expected image content type (typically `image/webp`). External image URLs included in imported tier lists are not automatically copied into the local image volume.
 
